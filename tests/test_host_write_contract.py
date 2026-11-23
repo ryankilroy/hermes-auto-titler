@@ -412,7 +412,10 @@ def test_host_stub_covers_every_host_api_the_plugin_calls():
         t._write(rec, "s2", "第二标题")
         accessed |= rec.accessed
 
-    host_api_used = {a for a in accessed if not a.startswith("__")}
+    # rewrite_llm_title is the storage-interface adapter's verb (store.py), probed
+    # first and absent from this legacy sqlite stub, which keeps the
+    # _execute_write CAS path covered; the adapter has its own tests.
+    host_api_used = {a for a in accessed if not a.startswith("__")} - {"rewrite_llm_title"}
     uncovered = host_api_used - expected_host_api
     assert not uncovered, (
         "plugin resolved host attributes the stub does not model: "

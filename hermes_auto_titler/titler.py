@@ -36,11 +36,11 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from hermes_state import SessionDB
+from .store import SessionDB, open_session_db
 
 try:
     # 宿主提供 profile home 解析；极老宿主没有时退回 HERMES_HOME 环境变量
-    from hermes_state import get_hermes_home
+    from hermes_constants import get_hermes_home
 except ImportError:  # pragma: no cover
     def get_hermes_home():  # type: ignore[misc]
         import os
@@ -206,7 +206,7 @@ def get_db() -> SessionDB:
     with _db_lock:
         db = _dbs.get(key)
         if db is None:
-            db = SessionDB()
+            db = open_session_db()
             _dbs[key] = db
     return db
 
@@ -1857,6 +1857,18 @@ class AutoTitler:
                     "WHERE id = ? AND title IS ? AND title_source = ?",
                     (t, SessionDB.TITLE_SOURCE_LLM, session_id, expected, SessionDB.TITLE_SOURCE_LLM),
                 ).rowcount > 0
+
+            # 当前宿主（存储接口）：适配器的 rewrite_llm_title 先降级再经
+            # set_auto_title 的 CAS 写入，每一步复核并可回滚，绝不覆盖 user 标题。
+            rewrite = getattr(db, "rewrite_llm_title", None)
+            if callable(rewrite):
+                try:
+                    return bool(rewrite(session_id, t, expected))
+                except Exception as e:
+                    if _is_title_conflict(e, t):
+                        raise
+                    log.warning("auto-titler %s: llm title rewrite failed: %s", session_id[:12], e)
+                    return False
 
             exec_write = getattr(db, "_execute_write", None)
             if callable(exec_write):

@@ -1517,7 +1517,7 @@ def test_get_db_singleton_under_concurrent_first_access(monkeypatch):
             time.sleep(0.02)
             FakeSessionDB.instances += 1
 
-    monkeypatch.setattr(titler_mod, "SessionDB", FakeSessionDB)
+    monkeypatch.setattr(titler_mod, "open_session_db", FakeSessionDB)
     monkeypatch.setattr(titler_mod, "_dbs", {})
     results = []
 
@@ -1546,7 +1546,7 @@ def test_get_db_isolates_profiles_by_hermes_home(monkeypatch, tmp_path):
             self.home = os.environ.get("HERMES_HOME", "default")
             FakeSessionDB.homes.append(self.home)
 
-    monkeypatch.setattr(titler_mod, "SessionDB", FakeSessionDB)
+    monkeypatch.setattr(titler_mod, "open_session_db", FakeSessionDB)
     monkeypatch.setattr(titler_mod, "_dbs", {})
     profile_a = str(tmp_path / "profile-A")
     profile_b = str(tmp_path / "profile-B")
