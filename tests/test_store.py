@@ -166,3 +166,56 @@ def test_open_session_db_falls_back_to_legacy_on_old_hosts(monkeypatch):
     monkeypatch.setitem(sys.modules, "persistence_assembly", None)  # ImportError
     db = store_mod.open_session_db()
     assert not isinstance(db, store_mod.SessionDB)
+
+
+# -- retry-sweep secret scope -------------------------------------------------
+
+def _fake_secret_scope(monkeypatch, bound):
+    calls = []
+    mod = types.ModuleType("agent.secret_scope")
+    mod.build_profile_secret_scope = lambda home: {"home": str(home)}
+    mod.current_secret_scope = lambda: bound[0]
+    mod.set_secret_scope = lambda secrets, profile_home=None: calls.append(("set", profile_home)) or bound.__setitem__(0, secrets) or "tok"
+    mod.reset_secret_scope = lambda token: calls.append(("reset", token)) or bound.__setitem__(0, None)
+    monkeypatch.setitem(sys.modules, "agent.secret_scope", mod)
+    return calls
+
+
+def test_profile_secret_scope_binds_and_releases(monkeypatch, tmp_path):
+    from hermes_auto_titler.titler import profile_secret_scope
+
+    bound = [None]
+    calls = _fake_secret_scope(monkeypatch, bound)
+    with profile_secret_scope(tmp_path):
+        assert bound[0] == {"home": str(tmp_path)}
+    assert bound[0] is None
+    assert calls == [("set", str(tmp_path)), ("reset", "tok")]
+
+
+def test_profile_secret_scope_releases_on_error(monkeypatch, tmp_path):
+    from hermes_auto_titler.titler import profile_secret_scope
+
+    bound = [None]
+    _fake_secret_scope(monkeypatch, bound)
+    with pytest.raises(RuntimeError):
+        with profile_secret_scope(tmp_path):
+            raise RuntimeError("boom")
+    assert bound[0] is None
+
+
+def test_profile_secret_scope_keeps_an_existing_scope(monkeypatch, tmp_path):
+    from hermes_auto_titler.titler import profile_secret_scope
+
+    bound = [{"turn": "scope"}]
+    calls = _fake_secret_scope(monkeypatch, bound)
+    with profile_secret_scope(tmp_path):
+        assert bound[0] == {"turn": "scope"}
+    assert calls == []
+
+
+def test_profile_secret_scope_is_a_noop_on_hosts_without_scopes(monkeypatch, tmp_path):
+    from hermes_auto_titler.titler import profile_secret_scope
+
+    monkeypatch.setitem(sys.modules, "agent.secret_scope", None)  # ImportError
+    with profile_secret_scope(tmp_path):
+        pass

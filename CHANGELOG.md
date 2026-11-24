@@ -4,6 +4,7 @@
 
 - **Fix titles never updating on current Hermes**: Hermes removed the old `hermes_state.SessionDB` (including its `TITLE_SOURCE_*` constants, title getters/setters and `_execute_write`) in favour of the storage interface, so every background evaluation failed with `type object '_SessionDB' has no attribute 'TITLE_SOURCE_USER'`. Session access now goes through `hermes_auto_titler/store.py`, an adapter over `persistence_assembly` that keeps the plugin's existing call surface; older hosts still get the legacy `SessionDB`.
 - **llm -> llm renames without a CAS verb**: the store's `set_auto_title` only upgrades strictly lower provenance, so renames demote the row to `derived` and write through `set_auto_title`, re-checking title and provenance at each step and restoring them on conflict or when a user `/title` lands in the gap. A user title is never overwritten.
+- **Retry sweep works under a multiplexing gateway**: the sweep thread starts at plugin registration, outside any profile secret scope, so every model call it made raised `UnscopedSecretError` and parked the session. Each sweep now runs inside the plugin's own profile scope (`profile_secret_scope`); hook-driven evaluations already inherited the turn's scope.
 
 ## 0.3.1 — 2026-10-30
 

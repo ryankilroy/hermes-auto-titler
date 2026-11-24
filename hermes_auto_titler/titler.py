@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import collections
+import contextlib
 import contextvars
 import errno
 import json
@@ -229,6 +230,35 @@ def _wrap_with_context(target):
 
         return _fallback
     return propagate_context_to_thread(target)
+
+
+@contextlib.contextmanager
+def profile_secret_scope(home: Any):
+    """Bind ``home``'s secrets for the calling thread (no-op if a scope is already bound).
+
+    A multiplexing gateway makes ``get_secret`` fail closed (``UnscopedSecretError``) outside
+    a profile scope. Hook-driven evaluations inherit the turn's scope, but the retry sweep
+    thread is started at plugin registration, where none exists, so its model calls were
+    all rejected. Bind the plugin's own profile around each sweep instead.
+    """
+    try:
+        from agent.secret_scope import (
+            build_profile_secret_scope,
+            current_secret_scope,
+            reset_secret_scope,
+            set_secret_scope,
+        )
+    except ImportError:  # old host without profile scopes: nothing to bind
+        yield
+        return
+    if current_secret_scope() is not None:
+        yield
+        return
+    token = set_secret_scope(build_profile_secret_scope(Path(home)), profile_home=str(home))
+    try:
+        yield
+    finally:
+        reset_secret_scope(token)
 
 
 def _safe_audit_action(text: str) -> str:
@@ -620,15 +650,18 @@ class AutoTitler:
         if existing is not None and existing.is_alive():
             return
         self._retry_stop = threading.Event()
+        home = get_hermes_home()
 
         def run() -> None:
             try:
-                self._requeue_untitled_sessions()
+                with profile_secret_scope(home):
+                    self._requeue_untitled_sessions()
             except Exception:
                 log.warning("auto-titler untitled requeue failed", exc_info=True)
             while not self._retry_stop.wait(30.0):
                 try:
-                    self._retry_failed_sessions()
+                    with profile_secret_scope(home):
+                        self._retry_failed_sessions()
                 except Exception:
                     log.warning("auto-titler retry sweep failed", exc_info=True)
 
